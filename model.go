@@ -1,8 +1,46 @@
 package main
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+	// "charm.land/bubbles/v2"
+	// "charm.land/lipgloss/v2"
+)
+
+type ChatMessage struct {
+	Content string
+	Role    MessageRole
+}
+type MessageRole string
+
+const (
+	MessageRoleUser      MessageRole = "user"
+	MessageRoleAssistant MessageRole = "assistant"
+)
+
+type AppConfig struct {
+	APIKey string
+	Model  string
+}
+
+type ChatClient interface {
+	SendMessage(message string) (string, error)
+}
 
 type Model struct {
+	messages []ChatMessage
+	input    string
+	pending  bool
+	err      error
+	width    int
+	height   int
+	cursor   int
+	client   ChatClient
+	config   AppConfig
+}
+
+type chatResponseMsg struct {
+}
+type chatErorMsg struct {
 }
 
 func newModel() Model {
