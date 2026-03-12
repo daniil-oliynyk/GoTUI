@@ -8,7 +8,6 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello, World!")
 
 	m := newModel()
 	p := tea.NewProgram(m)
