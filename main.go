@@ -5,10 +5,11 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/caarlos0/env/v11"
 )
 
-type AppConfig struct {
-	APIKey string
+type ChatClientConfig struct {
+	APIKey string `env:"API_KEY"`
 	Model  string
 }
 
@@ -20,10 +21,13 @@ func main() {
 	}
 	defer fd.Close()
 
-	config := AppConfig{
-		APIKey: "temp key",
-		Model:  "temp model",
+	config := ChatClientConfig{Model: "gpt-5-mini-2025-08-07"}
+	err = env.Parse(&config)
+	if err != nil {
+		log.Println("Error parsing config:", err)
+		os.Exit(1)
 	}
+	log.Println("Config:", config)
 	m := newModel(config)
 	p := tea.NewProgram(m)
 

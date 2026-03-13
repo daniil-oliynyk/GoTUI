@@ -29,14 +29,8 @@ const (
 	MessageRoleAssistant MessageRole = "assistant"
 )
 
-type AppConfig struct {
-	APIKey string
-	Model  string
-}
-
 type ChatRequest struct {
 	Messages []ChatMessage
-	Model    string
 }
 
 type ChatResponse struct {
@@ -44,23 +38,23 @@ type ChatResponse struct {
 }
 
 type Model struct {
-	spinner      spinner.Model
-	viewport     viewport.Model
-	textinput    textinput.Model
-	messages     []ChatMessage
-	input        string
-	pending      bool
-	err          error
-	width        int
-	height       int
-	cursor       int
-	client       ChatClient
-	config       AppConfig
-	chatrequest  ChatRequest
-	chatresponse ChatResponse
+	spinner          spinner.Model
+	viewport         viewport.Model
+	textinput        textinput.Model
+	messages         []ChatMessage
+	input            string
+	pending          bool
+	err              error
+	width            int
+	height           int
+	cursor           int
+	client           ChatClient
+	chatClientConfig ChatClientConfig
+	chatrequest      ChatRequest
+	chatresponse     ChatResponse
 }
 
-func newModel(config AppConfig) Model {
+func newModel(config ChatClientConfig) Model {
 	vp := viewport.New(
 		viewport.WithWidth(80),
 		viewport.WithHeight(20),
@@ -70,20 +64,20 @@ func newModel(config AppConfig) Model {
 	s.Spinner = spinner.Points
 
 	ti := textinput.New()
-	ti.Placeholder = "Placeholder"
+	ti.Placeholder = "Ask anything"
 	ti.SetVirtualCursor(false)
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.SetWidth(20)
 
 	return Model{
-		spinner:   s,
-		viewport:  vp,
-		textinput: ti,
-		pending:   false,
-		messages:  []ChatMessage{},
-		config:    config,
-		client:    chatClientImpl{Model: config.Model},
+		spinner:          s,
+		viewport:         vp,
+		textinput:        ti,
+		pending:          false,
+		messages:         []ChatMessage{},
+		chatClientConfig: config,
+		client:           newChatClient(config),
 	}
 }
 
@@ -128,14 +122,13 @@ func sendMessages(m Model) tea.Cmd {
 
 		request := ChatRequest{
 			Messages: m.messages,
-			Model:    m.config.Model,
 		}
 		m.chatrequest = request
 		response, err := m.client.SendMessage(request)
 		m.chatresponse = response
 		if err != nil {
 			errorMessage := chatErrorMsg{err: err}
-			log.Println("Update().msg.enter - error sending message: " + err.Error())
+			log.Println("m.sendMessages() - error sending message: " + err.Error())
 			return errorMessage
 		}
 		chatMessage := chatResponseMsg{
@@ -144,7 +137,7 @@ func sendMessages(m Model) tea.Cmd {
 				Role:    MessageRoleAssistant,
 			},
 		}
-		log.Println("Update().msg.enter - added assistant message: " + chatMessage.message.Content)
+		log.Println("m.sendMessages() - received message: " + chatMessage.message.Content)
 		return chatMessage
 	}
 }
@@ -202,16 +195,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case chatErrorMsg:
-		log.Println("Update().msg.chatErrorMsg: " + msg.err.Error())
+		log.Println("Update().msg.chatErrorMsg.Content: " + msg.err.Error())
 		m.pending = false
 		return m, nil
 
 	case chatResponseMsg:
-		log.Println("Update().msg.chatResponseMsg: " + msg.message.Content)
+		log.Println("Update().msg.chatResponseMsg.Content: " + msg.message.Content)
 		m.pending = false
 		m.messages = append(m.messages, msg.message)
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
+		log.Println("Update().msg.chatResponseMsg message added")
 		return m, nil
 
 	case spinner.TickMsg:
