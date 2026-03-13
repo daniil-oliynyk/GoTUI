@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -12,6 +13,12 @@ import (
 type ChatMessage struct {
 	Content string
 	Role    MessageRole
+}
+type chatResponseMsg struct {
+	message ChatMessage
+}
+type chatErrorMsg struct {
+	err error
 }
 type MessageRole string
 
@@ -26,29 +33,44 @@ type AppConfig struct {
 }
 
 type ChatClient interface {
-	SendMessage(message string) (string, error)
+	SendMessage(ChatRequest) (ChatResponse, error)
+}
+
+type ChatRequest struct {
+	Messages []ChatMessage
+	Model    string
+}
+
+type ChatResponse struct {
+	Response string
+}
+
+type chatClientImpl struct {
+	Model string
+}
+
+func (c chatClientImpl) SendMessage(request ChatRequest) (ChatResponse, error) {
+	log.Println("chatClientImpl.SendMessage().enter")
+	return ChatResponse{}, nil
 }
 
 type Model struct {
-	viewport  viewport.Model
-	textinput textinput.Model
-	messages  []ChatMessage
-	input     string
-	pending   bool
-	err       error
-	width     int
-	height    int
-	cursor    int
-	client    ChatClient
-	config    AppConfig
+	viewport     viewport.Model
+	textinput    textinput.Model
+	messages     []ChatMessage
+	input        string
+	pending      bool
+	err          error
+	width        int
+	height       int
+	cursor       int
+	client       ChatClient
+	config       AppConfig
+	chatrequest  ChatRequest
+	chatresponse ChatResponse
 }
 
-type chatResponseMsg struct {
-}
-type chatErorMsg struct {
-}
-
-func newModel() Model {
+func newModel(config AppConfig) Model {
 	vp := viewport.New(
 		viewport.WithWidth(80),
 		viewport.WithHeight(20),
@@ -65,6 +87,8 @@ func newModel() Model {
 		viewport:  vp,
 		textinput: ti,
 		messages:  []ChatMessage{},
+		config:    config,
+		client:    chatClientImpl{Model: config.Model},
 	}
 }
 
@@ -85,7 +109,8 @@ var userStyle = lipgloss.NewStyle().
 	Margin(0, 0, 0, 10)
 
 func (m Model) renderMessages() string {
-
+	log.Println("renderMessages().enter")
+	defer log.Println("renderMessages().exit")
 	var renderedResult []string
 	for _, msg := range m.messages {
 		var rendered string
@@ -116,6 +141,21 @@ func (m Model) renderMessages() string {
 	return content
 }
 
+func (m Model) sendMessages() (ChatResponse, error) {
+	log.Println("sendMessages().enter")
+	defer log.Println("sendMessages().exit")
+
+	request := ChatRequest{
+		Messages: m.messages,
+		Model:    m.config.Model,
+	}
+	m.chatrequest = request
+	response, err := m.client.SendMessage(request)
+	m.chatresponse = response
+	return response, err
+
+}
+
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -141,6 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
+			log.Println("Update().msg.enter")
 			if m.textinput.Value() == "" {
 				return m, nil
 			}
@@ -148,12 +189,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: m.textinput.Value(),
 				Role:    MessageRoleUser,
 			}
+			log.Println("Update().msg.enter - added user message: " + msg.Content)
 			m.messages = append(m.messages, msg)
 
 			m.viewport.SetContent(m.renderMessages())
 			m.viewport.GotoBottom()
 			m.textinput.SetValue("")
+
+			response, err := m.sendMessages()
+			if err != nil {
+				errorMessage := chatErrorMsg{err: err}
+				log.Println("Update().msg.enter - error sending message: " + err.Error())
+				return m, func() tea.Msg { return errorMessage }
+			}
+			chatMessage := chatResponseMsg{
+				message: ChatMessage{
+					Content: response.Response,
+					Role:    MessageRoleAssistant,
+				},
+			}
+			log.Println("Update().msg.enter - added assistant message: " + chatMessage.message.Content)
+			return m, func() tea.Msg { return chatMessage }
 		}
+
+	case chatErrorMsg:
+		log.Println("Update().msg.chatErrorMsg: " + msg.err.Error())
+		return m, nil
+
+	case chatResponseMsg:
+		log.Println("Update().msg.chatResponseMsg: " + msg.message.Content)
+		m.messages = append(m.messages, msg.message)
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
 
 	}
 	m.textinput, cmd = m.textinput.Update(msg)
