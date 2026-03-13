@@ -4,6 +4,7 @@ import (
 	"log"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -20,6 +21,7 @@ type chatResponseMsg struct {
 type chatErrorMsg struct {
 	err error
 }
+
 type MessageRole string
 
 const (
@@ -32,10 +34,6 @@ type AppConfig struct {
 	Model  string
 }
 
-type ChatClient interface {
-	SendMessage(ChatRequest) (ChatResponse, error)
-}
-
 type ChatRequest struct {
 	Messages []ChatMessage
 	Model    string
@@ -45,16 +43,8 @@ type ChatResponse struct {
 	Response string
 }
 
-type chatClientImpl struct {
-	Model string
-}
-
-func (c chatClientImpl) SendMessage(request ChatRequest) (ChatResponse, error) {
-	log.Println("chatClientImpl.SendMessage().enter")
-	return ChatResponse{}, nil
-}
-
 type Model struct {
+	spinner      spinner.Model
 	viewport     viewport.Model
 	textinput    textinput.Model
 	messages     []ChatMessage
@@ -76,6 +66,9 @@ func newModel(config AppConfig) Model {
 		viewport.WithHeight(20),
 	)
 
+	s := spinner.New()
+	s.Spinner = spinner.Points
+
 	ti := textinput.New()
 	ti.Placeholder = "Placeholder"
 	ti.SetVirtualCursor(false)
@@ -84,29 +77,15 @@ func newModel(config AppConfig) Model {
 	ti.SetWidth(20)
 
 	return Model{
+		spinner:   s,
 		viewport:  vp,
 		textinput: ti,
+		pending:   false,
 		messages:  []ChatMessage{},
 		config:    config,
 		client:    chatClientImpl{Model: config.Model},
 	}
 }
-
-var botStyle = lipgloss.NewStyle().
-	Align(lipgloss.Left).
-	Padding(0, 1).
-	Background(lipgloss.Color("238")).
-	Foreground(lipgloss.Color("255")).
-	Padding(0, 1).
-	Margin(0, 10, 0, 0)
-
-var userStyle = lipgloss.NewStyle().
-	Align(lipgloss.Right).
-	Padding(0, 1).
-	Background(lipgloss.Color("62")).
-	Foreground(lipgloss.Color("230")).
-	Padding(0, 1).
-	Margin(0, 0, 0, 10)
 
 func (m Model) renderMessages() string {
 	log.Println("renderMessages().enter")
@@ -141,19 +120,33 @@ func (m Model) renderMessages() string {
 	return content
 }
 
-func (m Model) sendMessages() (ChatResponse, error) {
+func sendMessages(m Model) tea.Cmd {
 	log.Println("sendMessages().enter")
 	defer log.Println("sendMessages().exit")
 
-	request := ChatRequest{
-		Messages: m.messages,
-		Model:    m.config.Model,
-	}
-	m.chatrequest = request
-	response, err := m.client.SendMessage(request)
-	m.chatresponse = response
-	return response, err
+	return func() tea.Msg {
 
+		request := ChatRequest{
+			Messages: m.messages,
+			Model:    m.config.Model,
+		}
+		m.chatrequest = request
+		response, err := m.client.SendMessage(request)
+		m.chatresponse = response
+		if err != nil {
+			errorMessage := chatErrorMsg{err: err}
+			log.Println("Update().msg.enter - error sending message: " + err.Error())
+			return errorMessage
+		}
+		chatMessage := chatResponseMsg{
+			message: ChatMessage{
+				Content: response.Response,
+				Role:    MessageRoleAssistant,
+			},
+		}
+		log.Println("Update().msg.enter - added assistant message: " + chatMessage.message.Content)
+		return chatMessage
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -181,10 +174,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
+			if m.pending {
+				return m, nil
+			}
+
 			log.Println("Update().msg.enter")
 			if m.textinput.Value() == "" {
 				return m, nil
 			}
+			m.pending = true
+
 			msg := ChatMessage{
 				Content: m.textinput.Value(),
 				Role:    MessageRoleUser,
@@ -196,32 +195,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 			m.textinput.SetValue("")
 
-			response, err := m.sendMessages()
-			if err != nil {
-				errorMessage := chatErrorMsg{err: err}
-				log.Println("Update().msg.enter - error sending message: " + err.Error())
-				return m, func() tea.Msg { return errorMessage }
-			}
-			chatMessage := chatResponseMsg{
-				message: ChatMessage{
-					Content: response.Response,
-					Role:    MessageRoleAssistant,
-				},
-			}
-			log.Println("Update().msg.enter - added assistant message: " + chatMessage.message.Content)
-			return m, func() tea.Msg { return chatMessage }
+			return m, tea.Batch(
+				m.spinner.Tick,
+				sendMessages(m),
+			)
 		}
 
 	case chatErrorMsg:
 		log.Println("Update().msg.chatErrorMsg: " + msg.err.Error())
+		m.pending = false
 		return m, nil
 
 	case chatResponseMsg:
 		log.Println("Update().msg.chatResponseMsg: " + msg.message.Content)
+		m.pending = false
 		m.messages = append(m.messages, msg.message)
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		return m, nil
+
+	case spinner.TickMsg:
+		if m.pending {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
 
 	}
 	m.textinput, cmd = m.textinput.Update(msg)
@@ -236,10 +233,19 @@ func (m Model) View() tea.View {
 		c.Y += lipgloss.Height(m.viewport.View() + "\n")
 	}
 
-	str := lipgloss.JoinVertical(lipgloss.Top, "Header", m.viewport.View(), m.textinput.View(), "Footer")
-	// if m.quitting {
-	// 	str += "\n"
-	// }
+	status := ""
+	if m.pending {
+		status = "Thinking " + m.spinner.View()
+	}
+
+	str := lipgloss.JoinVertical(
+		lipgloss.Top,
+		"Header",
+		m.viewport.View(),
+		status,
+		m.textinput.View(),
+		"Footer",
+	)
 
 	v := tea.NewView(str)
 	v.Cursor = c

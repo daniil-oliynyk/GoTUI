@@ -7,6 +7,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type AppConfig struct {
+	APIKey string
+	Model  string
+}
+
 func main() {
 	fd, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
