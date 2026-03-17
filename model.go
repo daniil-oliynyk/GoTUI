@@ -93,36 +93,33 @@ func (m Model) renderMessages() string {
 	defer log.Println("renderMessages().exit")
 	var renderedResult []string
 
-	appInnerWidth := m.width - appStyle.GetHorizontalFrameSize()
-	if appInnerWidth < 1 {
-		appInnerWidth = 1
-	}
+	paneInnerWidth := m.transcriptPaneWidth()
+	conversationWidth := m.conversationWidth(paneInnerWidth)
+	conversationLaneWidth := m.conversationLaneWidth(conversationWidth)
+	assistantBubbleWidth := m.assistantBubbleWidth(conversationLaneWidth)
+	userBubbleWidth := m.userBubbleWidth(conversationLaneWidth)
 
 	for _, msg := range m.messages {
 		var rendered string
 
 		if msg.Role == MessageRoleUser {
-			rendered = userStyle.
-				Width(appInnerWidth).
+			bubble := userStyle.
+				Width(userBubbleWidth - userStyle.GetHorizontalFrameSize()).
 				Render(msg.Content)
+			row := lipgloss.PlaceHorizontal(conversationLaneWidth, lipgloss.Right, bubble)
+			rendered = lipgloss.PlaceHorizontal(paneInnerWidth, lipgloss.Center, row)
 		} else {
-			rendered = botStyle.
-				Width(appInnerWidth).
+			bubble := botStyle.
+				Width(assistantBubbleWidth - botStyle.GetHorizontalFrameSize()).
 				Render(msg.Content)
+			row := lipgloss.PlaceHorizontal(conversationLaneWidth, lipgloss.Left, bubble)
+			rendered = lipgloss.PlaceHorizontal(paneInnerWidth, lipgloss.Center, row)
 		}
 
 		renderedResult = append(renderedResult, rendered)
 	}
 
-	content := strings.Join(func() []string {
-
-		var result []string
-		for _, m := range renderedResult {
-			result = append(result, m)
-		}
-
-		return result
-	}(), "\n")
+	content := strings.Join(renderedResult, "\n\n")
 
 	return content
 }
@@ -181,6 +178,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		sectionWidth := appInnerWidth
+		paneInnerWidth := sectionWidth - paneStyle.GetHorizontalFrameSize()
+		composerInnerWidth := sectionWidth - m.currentComposerStyle().GetHorizontalFrameSize()
+
+		if paneInnerWidth < 1 {
+			paneInnerWidth = 1
+		}
+		if composerInnerWidth < 1 {
+			composerInnerWidth = 1
+		}
+
+		m.viewport.SetWidth(paneInnerWidth)
+		m.textinput.SetWidth(composerInnerWidth)
 
 		sections := m.renderLayoutSections(sectionWidth)
 		headerHeight := lipgloss.Height(sections.header)
@@ -193,23 +202,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			paneTotalHeight = 1
 		}
 
-		paneInnerWidth := sectionWidth - paneStyle.GetHorizontalFrameSize()
 		paneInnerHeight := paneTotalHeight - paneStyle.GetVerticalFrameSize()
-		composerInnerWidth := sectionWidth - composerStyle.GetHorizontalFrameSize()
-
-		if paneInnerWidth < 1 {
-			paneInnerWidth = 1
-		}
 		if paneInnerHeight < 1 {
 			paneInnerHeight = 1
 		}
-		if composerInnerWidth < 1 {
-			composerInnerWidth = 1
-		}
 
-		m.viewport.SetWidth(paneInnerWidth)
 		m.viewport.SetHeight(paneInnerHeight)
-		m.textinput.SetWidth(composerInnerWidth)
+		m.viewport.SetContent(m.renderMessages())
 
 	case tea.KeyPressMsg:
 
@@ -283,6 +282,11 @@ func (m Model) View() tea.View {
 	var c *tea.Cursor
 	if !m.textinput.VirtualCursor() {
 		c = m.textinput.Cursor()
+		composerStyle := m.currentComposerStyle()
+		composerInnerWidth := appInnerWidth - composerStyle.GetHorizontalFrameSize()
+		if composerInnerWidth < 1 {
+			composerInnerWidth = 1
+		}
 
 		aboveComposer := lipgloss.Height(
 			lipgloss.JoinVertical(
@@ -293,8 +297,13 @@ func (m Model) View() tea.View {
 			),
 		)
 
-		c.Y += 1 + aboveComposer + 1
-		c.X += 4
+		composerTopOffset := composerStyle.GetVerticalFrameSize() / 2
+		composerLeftOffset := composerStyle.GetHorizontalFrameSize() / 2
+		appTopOffset := appStyle.GetVerticalFrameSize() / 2
+		appLeftOffset := appStyle.GetHorizontalFrameSize() / 2
+
+		c.Y += appTopOffset + aboveComposer + composerTopOffset
+		c.X += appLeftOffset + composerLeftOffset
 	}
 
 	content := lipgloss.JoinVertical(
@@ -313,7 +322,11 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) renderHeader(width int) string {
-	return headerStyle.Render(m.chatClientConfig.Model)
+	innerWidth := width - headerStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	return headerStyle.Width(innerWidth).Render("Active Model: " + m.chatClientConfig.Model)
 }
 
 func (m Model) renderStatus(width int) string {
@@ -321,21 +334,195 @@ func (m Model) renderStatus(width int) string {
 	if m.pending {
 		statusText = "Thinking " + m.spinner.View()
 	}
-	status := statusStyle.Render(statusText)
+	if m.err != nil {
+		statusText = "Error: " + m.err.Error()
+	}
+	innerWidth := width - statusStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	status := statusStyle.Width(innerWidth).Render(statusText)
 	return status
 }
 
 func (m Model) renderPane(width int) string {
-	return paneStyle.Render(m.viewport.View())
+	innerWidth := width - paneStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	content := m.viewport.View()
+	if len(m.messages) == 0 {
+		content = m.renderEmptyState(innerWidth, m.viewport.Height())
+	}
+	return paneStyle.Width(innerWidth).Render(content)
 }
 
 func (m Model) renderComposer(width int) string {
-	return composerStyle.Width(width).Render(m.textinput.View())
+	composerStyle := m.currentComposerStyle()
+	innerWidth := width - composerStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	body := lipgloss.JoinVertical(
+		lipgloss.Left,
+
+		m.textinput.View(),
+	)
+
+	return composerStyle.Width(innerWidth).Render(body)
 }
 
 func (m Model) renderFooter(width int) string {
-	return footerStyle.Render("Enter send | Ctrl+C exit")
+	innerWidth := width - footerStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	return footerStyle.Width(innerWidth).Render("Enter send | Ctrl+C or esc to exit")
 }
+
+func (m Model) currentComposerStyle() lipgloss.Style {
+	if m.textinput.Focused() {
+		return composerFocusedStyle
+	}
+
+	return composerBlurredStyle
+}
+
+func (m Model) renderEmptyState(width, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	title := m.emptyStateTitle(width)
+	subtitle := emptyStateSubtitleStyle.Width(width).Align(lipgloss.Center).Render("Start a conversation below")
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		"",
+		subtitle,
+	)
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m Model) emptyStateTitle(width int) string {
+	large := strings.TrimSpace(`
+  ________          __  __________  ____
+ / ____/ /_  ____ _/ /_/_  __/ / / /  _/
+/ /   / __ \/ __ '/ __/ / / / / / // /
+/ /___/ / / / /_/ / /_  / / / /_/ // /
+\____/_/ /_/\__,_/\__/ /_/  \____/___/
+`)
+	compact := strings.TrimSpace(`
+  chatTUI
+`)
+
+	title := large
+	if width < lipgloss.Width(large) {
+		title = compact
+	}
+
+	return emptyStateTitleStyle.Width(width).Align(lipgloss.Center).Render(title)
+}
+
+func (m Model) transcriptPaneWidth() int {
+	paneInnerWidth := m.viewport.Width()
+	if paneInnerWidth < 1 {
+		paneInnerWidth = m.width - appStyle.GetHorizontalFrameSize() - paneStyle.GetHorizontalFrameSize()
+	}
+	if paneInnerWidth < 1 {
+		paneInnerWidth = 1
+	}
+
+	return paneInnerWidth
+}
+
+func (m Model) conversationWidth(paneWidth int) int {
+	conversationWidth := paneWidth
+	if conversationWidth > 84 {
+		conversationWidth = 84
+	}
+	maxAvailableWidth := paneWidth - 2
+	if maxAvailableWidth < 1 {
+		maxAvailableWidth = 1
+	}
+	if conversationWidth > maxAvailableWidth {
+		conversationWidth = maxAvailableWidth
+	}
+	if conversationWidth < 1 {
+		conversationWidth = 1
+	}
+
+	return conversationWidth
+}
+
+func (m Model) conversationLaneWidth(conversationWidth int) int {
+	conversationLaneWidth := conversationWidth
+	if conversationLaneWidth < conversationWidth/2 {
+		conversationLaneWidth = conversationWidth / 2
+	}
+	if conversationLaneWidth < 1 {
+		conversationLaneWidth = 1
+	}
+
+	return conversationLaneWidth
+}
+
+func (m Model) assistantBubbleWidth(laneWidth int) int {
+	bubbleWidth := laneWidth * 2 / 3
+	if bubbleWidth > 72 {
+		bubbleWidth = 72
+	}
+	maxAvailableWidth := laneWidth
+	if maxAvailableWidth < 1 {
+		maxAvailableWidth = 1
+	}
+	if bubbleWidth > maxAvailableWidth {
+		bubbleWidth = maxAvailableWidth
+	}
+	if bubbleWidth < 1 {
+		bubbleWidth = 1
+	}
+
+	return bubbleWidth
+}
+
+func (m Model) userBubbleWidth(laneWidth int) int {
+	bubbleWidth := laneWidth * 3 / 5
+	if bubbleWidth > 64 {
+		bubbleWidth = 64
+	}
+	maxAvailableWidth := laneWidth
+	if maxAvailableWidth < 1 {
+		maxAvailableWidth = 1
+	}
+	if bubbleWidth > maxAvailableWidth {
+		bubbleWidth = maxAvailableWidth
+	}
+	if bubbleWidth < 1 {
+		bubbleWidth = 1
+	}
+
+	return bubbleWidth
+}
+
+// FOR FUTURE USE
+// func (m Model) renderComposerLabel(width int) string {
+// 	style := composerLabelBlurredStyle
+// 	if m.textinput.Focused() {
+// 		style = composerLabelFocusedStyle
+// 	}
+
+// 	return style.Width(width).Render("Message")
+// }
+
+// func (m Model) renderComposerHint(width int) string {
+// 	return composerHintStyle.Width(width).Render("Enter to send")
+// }
 
 func (m Model) renderLayoutSections(width int) layoutSections {
 	return layoutSections{
