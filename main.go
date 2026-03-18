@@ -27,8 +27,8 @@ func main() {
 		log.Println("Error parsing config:", err)
 		os.Exit(1)
 	}
-	log.Println("Config:", config)
-	m := newModel(config)
+	log.Println("Config loaded")
+	m := newAppModel(config)
 	p := tea.NewProgram(m)
 
 	_, err = p.Run()
