@@ -12,6 +12,7 @@ import (
 
 type ChatClient interface {
 	SendMessage(ChatRequest) (ChatResponse, error)
+	GetModels() ([]string, error)
 }
 
 type chatClientImpl struct {
@@ -62,4 +63,21 @@ func (c *chatClientImpl) SendMessage(request ChatRequest) (ChatResponse, error) 
 	}
 
 	return ChatResponse{Response: response.OutputText()}, nil
+}
+
+func (c *chatClientImpl) GetModels() ([]string, error) {
+	page, err := c.client.Models.List(c.ctx)
+	if err != nil {
+		log.Println("chatClientImpl.GetModels().error", err)
+		return nil, err
+	}
+
+	var models []string
+	for _, model := range page.Data {
+		log.Println("Model:", model.ID)
+		models = append(models, model.ID)
+	}
+
+	return models, nil
+
 }

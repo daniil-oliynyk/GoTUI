@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -38,20 +39,27 @@ type ChatResponse struct {
 }
 
 type ChatModel struct {
-	spinner          spinner.Model
-	viewport         viewport.Model
-	textinput        textinput.Model
-	messages         []ChatMessage
-	input            string
-	pending          bool
-	err              error
-	width            int
-	height           int
-	cursor           int
-	client           ChatClient
-	chatClientConfig ChatClientConfig
-	chatrequest      ChatRequest
-	chatresponse     ChatResponse
+	spinner           spinner.Model
+	viewport          viewport.Model
+	textinput         textinput.Model
+	messages          []ChatMessage
+	input             string
+	pending           bool
+	err               error
+	width             int
+	height            int
+	cursor            int
+	client            ChatClient
+	chatClientConfig  ChatClientConfig
+	presetModels      []string
+	allModels         []string
+	modelList         []string
+	allModelsExpanded bool
+	modelPickerOpen   bool
+	modelPickerIndex  int
+	modelPickerOffset int
+	chatrequest       ChatRequest
+	chatresponse      ChatResponse
 }
 
 type layoutSections struct {
@@ -62,6 +70,16 @@ type layoutSections struct {
 }
 
 func newChatModel(config ChatClientConfig) ChatModel {
+	presetModels := []string{
+		"gpt-5-nano-2025-08-07",
+		"gpt-5.4",
+		"gpt-5.4-mini",
+		"gpt-5.4-nano",
+		"gpt-5.3-codex",
+	}
+
+	modelPickerIndex := selectedModelIndex(config.Model, presetModels)
+
 	vp := viewport.New(
 		viewport.WithWidth(80),
 		viewport.WithHeight(20),
@@ -78,15 +96,37 @@ func newChatModel(config ChatClientConfig) ChatModel {
 	ti.CharLimit = 156
 	ti.SetWidth(20)
 
-	return ChatModel{
-		spinner:          s,
-		viewport:         vp,
-		textinput:        ti,
-		pending:          false,
-		messages:         []ChatMessage{},
-		chatClientConfig: config,
-		client:           newChatClient(config),
+	m := ChatModel{
+		spinner:           s,
+		viewport:          vp,
+		textinput:         ti,
+		pending:           false,
+		messages:          []ChatMessage{},
+		chatClientConfig:  config,
+		client:            newChatClient(config),
+		presetModels:      presetModels,
+		modelList:         presetModels,
+		modelPickerIndex:  modelPickerIndex,
+		allModelsExpanded: false,
 	}
+
+	allModels, err := m.client.GetModels()
+	if err != nil {
+		log.Printf("Failed to get models: %v", err)
+	} else {
+		m.allModels = allModels
+	}
+	return m
+}
+
+func selectedModelIndex(currentModel string, availableModels []string) int {
+	for i, model := range availableModels {
+		if model == currentModel {
+			return i
+		}
+	}
+
+	return 0
 }
 
 func (m ChatModel) renderMessages() string {
@@ -216,11 +256,115 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderMessages())
 
 	case tea.KeyPressMsg:
+		if m.modelPickerOpen {
+
+			switch msg.String() {
+			case "esc":
+				if m.allModelsExpanded {
+					m.modelList = m.presetModels
+					m.allModelsExpanded = false
+					m.modelPickerIndex = selectedModelIndex(m.chatClientConfig.Model, m.modelList)
+					m.modelPickerOffset = 0
+					return m, nil
+				}
+				m.modelPickerOpen = false
+				return m, nil
+
+			case "up", "k":
+				if len(m.modelList) == 0 {
+					return m, nil
+				}
+				if m.modelPickerIndex > 0 {
+					m.modelPickerIndex--
+				}
+				if m.modelPickerIndex < m.modelPickerOffset {
+					m.modelPickerOffset = m.modelPickerIndex
+				}
+				return m, nil
+
+			case "down", "j":
+				if len(m.modelList) == 0 {
+					return m, nil
+				}
+				if m.modelPickerIndex < len(m.modelList)-1 {
+					m.modelPickerIndex++
+				}
+				visibleCount := m.modelPickerVisibleCount(m.viewport.Height())
+				if m.modelPickerIndex >= m.modelPickerOffset+visibleCount {
+					m.modelPickerOffset = m.modelPickerIndex - visibleCount + 1
+				}
+				return m, nil
+
+			case "pgup":
+				if len(m.modelList) == 0 {
+					return m, nil
+				}
+				visibleCount := m.modelPickerVisibleCount(m.viewport.Height())
+				m.modelPickerIndex -= visibleCount
+				if m.modelPickerIndex < 0 {
+					m.modelPickerIndex = 0
+				}
+				if m.modelPickerIndex < m.modelPickerOffset {
+					m.modelPickerOffset = m.modelPickerIndex
+				}
+				return m, nil
+
+			case "pgdown":
+				if len(m.modelList) == 0 {
+					return m, nil
+				}
+				visibleCount := m.modelPickerVisibleCount(m.viewport.Height())
+				m.modelPickerIndex += visibleCount
+				if m.modelPickerIndex > len(m.modelList)-1 {
+					m.modelPickerIndex = len(m.modelList) - 1
+				}
+				if m.modelPickerIndex >= m.modelPickerOffset+visibleCount {
+					m.modelPickerOffset = m.modelPickerIndex - visibleCount + 1
+				}
+				return m, nil
+
+			case "e":
+				if len(m.allModels) > 0 {
+					m.modelList = m.allModels
+					m.allModelsExpanded = true
+				}
+				log.Println("Model list updated to all models: ", len(m.modelList))
+				m.modelPickerIndex = selectedModelIndex(m.chatClientConfig.Model, m.modelList)
+				m.modelPickerOffset = 0
+				visibleCount := m.modelPickerVisibleCount(m.viewport.Height())
+				if m.modelPickerIndex >= visibleCount {
+					m.modelPickerOffset = m.modelPickerIndex - visibleCount + 1
+				}
+				return m, nil
+
+			case "enter":
+				if len(m.modelList) == 0 {
+					return m, nil
+				}
+				m.chatClientConfig.Model = m.modelList[m.modelPickerIndex]
+				m.client = newChatClient(m.chatClientConfig)
+				m.modelPickerOpen = false
+				return m, nil
+			}
+
+			return m, nil
+		}
 
 		switch msg.String() {
 
 		case "ctrl+c", "esc":
 			return m, tea.Quit
+
+		case "ctrl+o":
+			m.modelList = m.presetModels
+			m.modelPickerIndex = selectedModelIndex(m.chatClientConfig.Model, m.modelList)
+			m.modelPickerOffset = 0
+			visibleCount := m.modelPickerVisibleCount(m.viewport.Height())
+			if m.modelPickerIndex >= visibleCount {
+				m.modelPickerOffset = m.modelPickerIndex - visibleCount + 1
+			}
+			m.modelPickerOpen = true
+			return m, nil
 
 		case "enter":
 			if m.pending {
@@ -330,6 +474,9 @@ func (m ChatModel) View() tea.View {
 
 	str := appStyle.Render(content)
 	v := tea.NewView(str)
+	if m.modelPickerOpen {
+		c = nil
+	}
 	v.Cursor = c
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
@@ -365,7 +512,9 @@ func (m ChatModel) renderPane(width int) string {
 		innerWidth = 1
 	}
 	content := m.viewport.View()
-	if len(m.messages) == 0 {
+	if m.modelPickerOpen {
+		content = m.renderModelPicker(innerWidth, m.viewport.Height())
+	} else if len(m.messages) == 0 {
 		content = m.renderEmptyState(innerWidth, m.viewport.Height())
 	}
 	return paneStyle.Width(innerWidth).Render(content)
@@ -392,7 +541,79 @@ func (m ChatModel) renderFooter(width int) string {
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
-	return footerStyle.Width(innerWidth).Render("Enter send | Ctrl+C or esc to exit")
+	if m.modelPickerOpen {
+		return footerStyle.Width(innerWidth).Render("↑/↓ choose | Enter select | Esc close")
+	}
+
+	return footerStyle.Width(innerWidth).Render("Enter send | Ctrl+O models | Ctrl+C or esc exit")
+}
+
+func (m ChatModel) renderModelPicker(width, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	selectedStyle := optStyle.
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230"))
+
+	rows := make([]string, 0, len(m.modelList)+6)
+	rows = append(rows, labelStyle.Render("Choose OpenAI model"), "")
+
+	if len(m.modelList) == 0 {
+		rows = append(rows, hintStyle.Render("No models available"))
+	} else {
+		visibleCount := m.modelPickerVisibleCount(height)
+		start := m.modelPickerOffset
+		if start < 0 {
+			start = 0
+		}
+		maxStart := len(m.modelList) - visibleCount
+		if maxStart < 0 {
+			maxStart = 0
+		}
+		if start > maxStart {
+			start = maxStart
+		}
+
+		end := start + visibleCount
+		if end > len(m.modelList) {
+			end = len(m.modelList)
+		}
+
+		for i := start; i < end; i++ {
+			model := m.modelList[i]
+			line := optStyle.Render(model)
+			if i == m.modelPickerIndex {
+				line = selectedStyle.Render(model)
+			}
+			rows = append(rows, line)
+		}
+
+		rangeHint := fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(m.modelList))
+		rows = append(rows, "", hintStyle.Render(rangeHint))
+	}
+
+	rows = append(rows, "", hintStyle.Render("Use ↑/↓ or PgUp/PgDn then Enter"))
+	if !m.allModelsExpanded {
+		rows = append(rows, hintStyle.Render("Press 'e' to expand model list"))
+	}
+	rows = append(rows, hintStyle.Render("Only chat is supported, no audio/video/image generation"))
+
+	popup := formStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, popup)
+}
+
+func (m ChatModel) modelPickerVisibleCount(height int) int {
+	visibleCount := height - formStyle.GetVerticalFrameSize() - 7
+	if visibleCount < 1 {
+		visibleCount = 1
+	}
+
+	return visibleCount
 }
 
 func (m ChatModel) currentComposerStyle() lipgloss.Style {

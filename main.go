@@ -21,7 +21,7 @@ func main() {
 	}
 	defer fd.Close()
 
-	config := ChatClientConfig{Model: "gpt-5-mini-2025-08-07"}
+	config := ChatClientConfig{Model: "gpt-5-nano-2025-08-07"}
 	err = env.Parse(&config)
 	if err != nil {
 		log.Println("Error parsing config:", err)
