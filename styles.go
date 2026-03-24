@@ -85,3 +85,24 @@ var errLineStyle = lipgloss.NewStyle().
 var formStyle = lipgloss.NewStyle().
 	Border(lipgloss.DoubleBorder()).
 	Padding(1, 2)
+
+var sessionsSidebarStyle = lipgloss.NewStyle().
+	Border(lipgloss.ASCIIBorder()).
+	BorderForeground(lipgloss.Color("240")).
+	Padding(0, 1)
+
+var sessionSidebarTitleStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("230"))
+
+var sessionSidebarActionStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("117"))
+
+var sessionSelectedStyle = lipgloss.NewStyle().
+	Padding(0, 1).
+	Background(lipgloss.Color("62")).
+	Foreground(lipgloss.Color("230"))
+
+var sessionDeletePromptStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("203")).
+	Bold(true)

@@ -38,28 +38,37 @@ type ChatResponse struct {
 	Response string
 }
 
+type SessionItem struct {
+	Title string
+}
+
 type ChatModel struct {
-	spinner           spinner.Model
-	viewport          viewport.Model
-	textinput         textinput.Model
-	messages          []ChatMessage
-	input             string
-	pending           bool
-	err               error
-	width             int
-	height            int
-	cursor            int
-	client            ChatClient
-	chatClientConfig  ChatClientConfig
-	presetModels      []string
-	allModels         []string
-	modelList         []string
-	allModelsExpanded bool
-	modelPickerOpen   bool
-	modelPickerIndex  int
-	modelPickerOffset int
-	chatrequest       ChatRequest
-	chatresponse      ChatResponse
+	spinner              spinner.Model
+	viewport             viewport.Model
+	textinput            textinput.Model
+	messages             []ChatMessage
+	input                string
+	pending              bool
+	err                  error
+	width                int
+	height               int
+	cursor               int
+	client               ChatClient
+	chatClientConfig     ChatClientConfig
+	presetModels         []string
+	allModels            []string
+	modelList            []string
+	allModelsExpanded    bool
+	modelPickerOpen      bool
+	modelPickerIndex     int
+	modelPickerOffset    int
+	sessions             []SessionItem
+	selectedSession      int
+	sessionListOffset    int
+	sessionDeleteConfirm bool
+	sessionDeleteTarget  int
+	chatrequest          ChatRequest
+	chatresponse         ChatResponse
 }
 
 type layoutSections struct {
@@ -108,6 +117,17 @@ func newChatModel(config ChatClientConfig) ChatModel {
 		modelList:         presetModels,
 		modelPickerIndex:  modelPickerIndex,
 		allModelsExpanded: false,
+		sessions: []SessionItem{
+			{Title: "Session 1"},
+			{Title: "Session 2"},
+			{Title: "Session 3"},
+			{Title: "Session 4"},
+			{Title: "Session 5"},
+			{Title: "Session 6"},
+			{Title: "Session 7"},
+			{Title: "Session 8"},
+		},
+		selectedSession: 0,
 	}
 
 	allModels, err := m.client.GetModels()
@@ -127,6 +147,100 @@ func selectedModelIndex(currentModel string, availableModels []string) int {
 	}
 
 	return 0
+}
+
+func (m ChatModel) selectedSessionTitle() string {
+	if len(m.sessions) == 0 {
+		return "No Session"
+	}
+
+	if m.selectedSession < 0 || m.selectedSession >= len(m.sessions) {
+		return "No Session"
+	}
+
+	return m.sessions[m.selectedSession].Title
+}
+
+func (m *ChatModel) ensureSessionSelectionInBounds() {
+	if len(m.sessions) == 0 {
+		m.selectedSession = 0
+		m.sessionListOffset = 0
+		return
+	}
+
+	if m.selectedSession < 0 {
+		m.selectedSession = 0
+	}
+	if m.selectedSession > len(m.sessions)-1 {
+		m.selectedSession = len(m.sessions) - 1
+	}
+
+	visible := m.sessionVisibleCount()
+	if m.sessionListOffset > m.selectedSession {
+		m.sessionListOffset = m.selectedSession
+	}
+	if m.selectedSession >= m.sessionListOffset+visible {
+		m.sessionListOffset = m.selectedSession - visible + 1
+	}
+
+	maxOffset := len(m.sessions) - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.sessionListOffset < 0 {
+		m.sessionListOffset = 0
+	}
+	if m.sessionListOffset > maxOffset {
+		m.sessionListOffset = maxOffset
+	}
+}
+
+func (m *ChatModel) addSession() {
+	next := len(m.sessions) + 1
+	m.sessions = append(m.sessions, SessionItem{Title: fmt.Sprintf("Session %d", next)})
+	m.selectedSession = len(m.sessions) - 1
+	m.ensureSessionSelectionInBounds()
+}
+
+func (m *ChatModel) deleteSelectedSession() {
+	if len(m.sessions) <= 1 {
+		m.sessionDeleteConfirm = false
+		return
+	}
+
+	target := m.sessionDeleteTarget
+	if target < 0 || target >= len(m.sessions) {
+		target = m.selectedSession
+	}
+
+	m.sessions = append(m.sessions[:target], m.sessions[target+1:]...)
+	if m.selectedSession >= len(m.sessions) {
+		m.selectedSession = len(m.sessions) - 1
+	}
+	m.sessionDeleteConfirm = false
+	m.ensureSessionSelectionInBounds()
+}
+
+func (m ChatModel) sessionVisibleCount() int {
+	return 6
+}
+
+func (m ChatModel) sessionsSidebarWidth(totalWidth int) int {
+	sidebarWidth := 36
+	if totalWidth < 70 {
+		sidebarWidth = totalWidth / 2
+	}
+	if sidebarWidth < 24 {
+		sidebarWidth = 24
+	}
+	if sidebarWidth > totalWidth-1 {
+		sidebarWidth = totalWidth - 1
+	}
+	if sidebarWidth < 1 {
+		sidebarWidth = 1
+	}
+
+	return sidebarWidth
 }
 
 func (m ChatModel) renderMessages() string {
@@ -224,16 +338,20 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		sectionWidth := appInnerWidth
 		paneInnerWidth := sectionWidth - paneStyle.GetHorizontalFrameSize()
+		rightPaneInnerWidth := paneInnerWidth - m.sessionsSidebarWidth(paneInnerWidth) - 2
 		composerInnerWidth := sectionWidth - m.currentComposerStyle().GetHorizontalFrameSize()
 
 		if paneInnerWidth < 1 {
 			paneInnerWidth = 1
 		}
+		if rightPaneInnerWidth < 1 {
+			rightPaneInnerWidth = 1
+		}
 		if composerInnerWidth < 1 {
 			composerInnerWidth = 1
 		}
 
-		m.viewport.SetWidth(paneInnerWidth)
+		m.viewport.SetWidth(rightPaneInnerWidth)
 		m.textinput.SetWidth(composerInnerWidth)
 
 		sections := m.renderLayoutSections(sectionWidth)
@@ -350,6 +468,19 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.sessionDeleteConfirm {
+			switch msg.String() {
+			case "esc":
+				m.sessionDeleteConfirm = false
+				return m, nil
+			case "alt+d", "enter":
+				m.deleteSelectedSession()
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 
 		case "ctrl+c", "esc":
@@ -364,6 +495,41 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modelPickerOffset = m.modelPickerIndex - visibleCount + 1
 			}
 			m.modelPickerOpen = true
+			return m, nil
+
+		case "ctrl+n":
+			m.addSession()
+			return m, nil
+
+		case "alt+s":
+			if len(m.sessions) == 0 {
+				return m, nil
+			}
+			m.selectedSession++
+			if m.selectedSession >= len(m.sessions) {
+				m.selectedSession = 0
+				m.sessionListOffset = 0
+			}
+			m.ensureSessionSelectionInBounds()
+			return m, nil
+
+		case "alt+w":
+			if len(m.sessions) == 0 {
+				return m, nil
+			}
+			m.selectedSession--
+			if m.selectedSession < 0 {
+				m.selectedSession = len(m.sessions) - 1
+			}
+			m.ensureSessionSelectionInBounds()
+			return m, nil
+
+		case "alt+d":
+			if len(m.sessions) <= 1 {
+				return m, nil
+			}
+			m.sessionDeleteConfirm = true
+			m.sessionDeleteTarget = m.selectedSession
 			return m, nil
 
 		case "enter":
@@ -487,7 +653,7 @@ func (m ChatModel) renderHeader(width int) string {
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
-	return headerStyle.Width(innerWidth).Render("Active Model: " + m.chatClientConfig.Model)
+	return headerStyle.Width(innerWidth).Render("Active Model: " + m.chatClientConfig.Model + " | Session: " + m.selectedSessionTitle())
 }
 
 func (m ChatModel) renderStatus(width int) string {
@@ -514,8 +680,22 @@ func (m ChatModel) renderPane(width int) string {
 	content := m.viewport.View()
 	if m.modelPickerOpen {
 		content = m.renderModelPicker(innerWidth, m.viewport.Height())
-	} else if len(m.messages) == 0 {
-		content = m.renderEmptyState(innerWidth, m.viewport.Height())
+	} else {
+		sidebarWidth := m.sessionsSidebarWidth(innerWidth)
+		mainWidth := innerWidth - sidebarWidth - 2
+		if mainWidth < 1 {
+			mainWidth = 1
+		}
+
+		sidebar := m.renderSessionsSidebar(sidebarWidth, m.viewport.Height())
+
+		mainContent := m.viewport.View()
+		if len(m.messages) == 0 {
+			mainContent = m.renderSessionPlaceholder(mainWidth, m.viewport.Height())
+		}
+
+		right := lipgloss.NewStyle().Width(mainWidth).Render(mainContent)
+		content = lipgloss.JoinHorizontal(lipgloss.Top, " ", sidebar, " ", right)
 	}
 	return paneStyle.Width(innerWidth).Render(content)
 }
@@ -545,7 +725,88 @@ func (m ChatModel) renderFooter(width int) string {
 		return footerStyle.Width(innerWidth).Render("↑/↓ choose | Enter select | Esc close")
 	}
 
-	return footerStyle.Width(innerWidth).Render("Enter send | Ctrl+O models | Ctrl+C or esc exit")
+	if m.sessionDeleteConfirm {
+		return footerStyle.Width(innerWidth).Render("Delete session? Enter/alt+d confirm | Esc cancel")
+	}
+
+	return footerStyle.Width(innerWidth).Render("Enter send | Ctrl+N new session | alt+d delete | alt+w session up | alt+s session down | Ctrl+O models | Ctrl+C or esc exit")
+}
+
+func (m ChatModel) renderSessionsSidebar(width, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	rows := []string{
+		sessionSidebarTitleStyle.Render("Sessions"),
+		sessionSidebarActionStyle.Render("+ New Session (Ctrl+N)"),
+		"",
+	}
+
+	if len(m.sessions) == 0 {
+		rows = append(rows, hintStyle.Render("No sessions"))
+	} else {
+		visible := m.sessionVisibleCount()
+		start := m.sessionListOffset
+		if start < 0 {
+			start = 0
+		}
+		maxStart := len(m.sessions) - visible
+		if maxStart < 0 {
+			maxStart = 0
+		}
+		if start > maxStart {
+			start = maxStart
+		}
+		end := start + visible
+		if end > len(m.sessions) {
+			end = len(m.sessions)
+		}
+
+		for i := start; i < end; i++ {
+			line := optStyle.Render(m.sessions[i].Title)
+			if i == m.selectedSession {
+				line = sessionSelectedStyle.Render(m.sessions[i].Title)
+			}
+			rows = append(rows, line)
+		}
+
+		rows = append(rows, "", hintStyle.Render(fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(m.sessions))))
+	}
+
+	if m.sessionDeleteConfirm {
+		rows = append(rows, "", sessionDeletePromptStyle.Render("Delete selected session?"), hintStyle.Render("Enter/alt+d confirm | Esc cancel"))
+	}
+
+	innerWidth := width - sessionsSidebarStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	innerHeight := height - sessionsSidebarStyle.GetVerticalFrameSize()
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return sessionsSidebarStyle.Width(innerWidth).Height(innerHeight).Render(content)
+}
+
+func (m ChatModel) renderSessionPlaceholder(width, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	title := labelStyle.Width(width).Align(lipgloss.Center).Render(m.selectedSessionTitle())
+	subtitle := emptyStateSubtitleStyle.Width(width).Align(lipgloss.Center).Render("No messages yet")
+	body := lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle)
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
 }
 
 func (m ChatModel) renderModelPicker(width, height int) string {
