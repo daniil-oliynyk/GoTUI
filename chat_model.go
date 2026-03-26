@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -13,8 +14,10 @@ import (
 )
 
 type ChatMessage struct {
-	Content string
-	Role    MessageRole
+	ID        string
+	Content   string
+	Role      MessageRole
+	CreatedAt time.Time
 }
 type chatResponseMsg struct {
 	message ChatMessage
@@ -36,10 +39,6 @@ type ChatRequest struct {
 
 type ChatResponse struct {
 	Response string
-}
-
-type SessionItem struct {
-	Title string
 }
 
 type ChatModel struct {
