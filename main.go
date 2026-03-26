@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -28,7 +29,25 @@ func main() {
 		os.Exit(1)
 	}
 	log.Println("Config loaded")
-	m := newAppModel(config)
+
+	sqliteDB, err := NewSQLiteDB("chat.db")
+	if err != nil {
+		log.Println("Error opening sqlite db:", err)
+		os.Exit(1)
+	}
+	defer sqliteDB.Close()
+
+	migrator := NewSQLiteMigrator(sqliteDB.DB())
+	if err := migrator.Migrate(context.Background()); err != nil {
+		log.Println("Error running sqlite migrations:", err)
+		os.Exit(1)
+	}
+
+	sessionStore := NewSQLiteSessionStore(sqliteDB)
+	messageStore := NewSQLiteMessageStore(sqliteDB)
+	history := NewChatHistoryImpl(sessionStore, messageStore)
+
+	m := newAppModel(config, history)
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 

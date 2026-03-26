@@ -14,17 +14,19 @@ type navigateToChatMsg struct {
 }
 
 type AppModel struct {
-	screen     screen
-	width      int
-	height     int
-	setupModel SetupModel
-	chatModel  ChatModel
+	screen      screen
+	width       int
+	height      int
+	setupModel  SetupModel
+	chatModel   ChatModel
+	chatHistory ChatHistory
 }
 
-func newAppModel(defaultConfig ChatClientConfig) AppModel {
+func newAppModel(defaultConfig ChatClientConfig, chatHistory ChatHistory) AppModel {
 	return AppModel{
-		screen:     screenSetup,
-		setupModel: newSetupModel(defaultConfig),
+		screen:      screenSetup,
+		setupModel:  newSetupModel(defaultConfig),
+		chatHistory: chatHistory,
 	}
 }
 
@@ -47,7 +49,7 @@ func (a AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case navigateToChatMsg:
-		a.chatModel = newChatModel(msg.config)
+		a.chatModel = newChatModel(msg.config, a.chatHistory)
 		if a.width > 0 && a.height > 0 {
 			model, _ := a.chatModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.chatModel = model.(ChatModel)

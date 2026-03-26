@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -61,8 +62,10 @@ type ChatModel struct {
 	modelPickerOpen      bool
 	modelPickerIndex     int
 	modelPickerOffset    int
+	chatHistory          ChatHistory
 	sessions             []SessionItem
 	selectedSession      int
+	activeSessionID      string
 	sessionListOffset    int
 	sessionDeleteConfirm bool
 	sessionDeleteTarget  int
@@ -77,7 +80,7 @@ type layoutSections struct {
 	footer   string
 }
 
-func newChatModel(config ChatClientConfig) ChatModel {
+func newChatModel(config ChatClientConfig, chatHistory ChatHistory) ChatModel {
 	presetModels := []string{
 		"gpt-5-nano-2025-08-07",
 		"gpt-5.4",
@@ -116,17 +119,9 @@ func newChatModel(config ChatClientConfig) ChatModel {
 		modelList:         presetModels,
 		modelPickerIndex:  modelPickerIndex,
 		allModelsExpanded: false,
-		sessions: []SessionItem{
-			{Title: "Session 1"},
-			{Title: "Session 2"},
-			{Title: "Session 3"},
-			{Title: "Session 4"},
-			{Title: "Session 5"},
-			{Title: "Session 6"},
-			{Title: "Session 7"},
-			{Title: "Session 8"},
-		},
-		selectedSession: 0,
+		chatHistory:       chatHistory,
+		sessions:          []SessionItem{},
+		selectedSession:   0,
 	}
 
 	allModels, err := m.client.GetModels()
@@ -135,6 +130,38 @@ func newChatModel(config ChatClientConfig) ChatModel {
 	} else {
 		m.allModels = allModels
 	}
+
+	if m.chatHistory != nil {
+		ctx := context.Background()
+		defaultSession, err := m.chatHistory.InitDefaultSession(ctx)
+		if err != nil {
+			m.err = err
+			return m
+		}
+
+		sessions, err := m.chatHistory.LoadSessions(ctx)
+		if err != nil {
+			m.err = err
+			return m
+		}
+
+		m.sessions = sessions
+		if len(m.sessions) == 0 {
+			m.sessions = []SessionItem{defaultSession}
+		}
+
+		for i, session := range m.sessions {
+			if session.ID == defaultSession.ID {
+				m.selectedSession = i
+				break
+			}
+		}
+		m.ensureSessionSelectionInBounds()
+		if err := m.loadSelectedSessionMessages(ctx); err != nil {
+			m.err = err
+		}
+	}
+
 	return m
 }
 
@@ -195,14 +222,39 @@ func (m *ChatModel) ensureSessionSelectionInBounds() {
 }
 
 func (m *ChatModel) addSession() {
-	next := len(m.sessions) + 1
-	m.sessions = append(m.sessions, SessionItem{Title: fmt.Sprintf("Session %d", next)})
-	m.selectedSession = len(m.sessions) - 1
+	if m.chatHistory == nil {
+		return
+	}
+
+	ctx := context.Background()
+	title := fmt.Sprintf("Session %d", len(m.sessions)+1)
+	created, err := m.chatHistory.CreateAndSelectSession(ctx, title)
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	sessions, err := m.chatHistory.LoadSessions(ctx)
+	if err != nil {
+		m.err = err
+		return
+	}
+
+	m.sessions = sessions
+	for i, session := range m.sessions {
+		if session.ID == created.ID {
+			m.selectedSession = i
+			break
+		}
+	}
 	m.ensureSessionSelectionInBounds()
+	if err := m.loadSelectedSessionMessages(ctx); err != nil {
+		m.err = err
+	}
 }
 
 func (m *ChatModel) deleteSelectedSession() {
-	if len(m.sessions) <= 1 {
+	if m.chatHistory == nil || len(m.sessions) <= 1 {
 		m.sessionDeleteConfirm = false
 		return
 	}
@@ -212,12 +264,65 @@ func (m *ChatModel) deleteSelectedSession() {
 		target = m.selectedSession
 	}
 
-	m.sessions = append(m.sessions[:target], m.sessions[target+1:]...)
-	if m.selectedSession >= len(m.sessions) {
-		m.selectedSession = len(m.sessions) - 1
+	if target < 0 || target >= len(m.sessions) {
+		m.sessionDeleteConfirm = false
+		return
 	}
+
+	ctx := context.Background()
+	next, err := m.chatHistory.DeleteSession(ctx, m.sessions[target].ID)
+	if err != nil {
+		m.err = err
+		m.sessionDeleteConfirm = false
+		return
+	}
+
+	sessions, err := m.chatHistory.LoadSessions(ctx)
+	if err != nil {
+		m.err = err
+		m.sessionDeleteConfirm = false
+		return
+	}
+
+	m.sessions = sessions
+	if len(m.sessions) > 0 {
+		m.selectedSession = 0
+		for i, session := range m.sessions {
+			if session.ID == next.ID {
+				m.selectedSession = i
+				break
+			}
+		}
+	}
+
 	m.sessionDeleteConfirm = false
 	m.ensureSessionSelectionInBounds()
+	if err := m.loadSelectedSessionMessages(ctx); err != nil {
+		m.err = err
+	}
+}
+
+func (m *ChatModel) loadSelectedSessionMessages(ctx context.Context) error {
+	if m.chatHistory == nil || len(m.sessions) == 0 {
+		m.activeSessionID = ""
+		m.messages = []ChatMessage{}
+		m.viewport.SetContent(m.renderMessages())
+		return nil
+	}
+
+	m.ensureSessionSelectionInBounds()
+	session := m.sessions[m.selectedSession]
+	m.activeSessionID = session.ID
+
+	messages, err := m.chatHistory.LoadSessionMessages(ctx, session.ID)
+	if err != nil {
+		return err
+	}
+
+	m.messages = messages
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
+	return nil
 }
 
 func (m ChatModel) sessionVisibleCount() int {
@@ -510,6 +615,9 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sessionListOffset = 0
 			}
 			m.ensureSessionSelectionInBounds()
+			if err := m.loadSelectedSessionMessages(context.Background()); err != nil {
+				m.err = err
+			}
 			return m, nil
 
 		case "alt+w":
@@ -521,6 +629,9 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedSession = len(m.sessions) - 1
 			}
 			m.ensureSessionSelectionInBounds()
+			if err := m.loadSelectedSessionMessages(context.Background()); err != nil {
+				m.err = err
+			}
 			return m, nil
 
 		case "alt+d":
@@ -540,12 +651,21 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.textinput.Value() == "" {
 				return m, nil
 			}
-			m.pending = true
 
 			msg := ChatMessage{
 				Content: m.textinput.Value(),
 				Role:    MessageRoleUser,
 			}
+			if m.chatHistory != nil && m.activeSessionID != "" {
+				persisted, err := m.chatHistory.AddUserMessage(context.Background(), m.activeSessionID, msg)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+				msg = persisted
+			}
+
+			m.pending = true
 			log.Println("Update().msg.enter - added user message: " + msg.Content)
 			m.messages = append(m.messages, msg)
 
@@ -575,7 +695,16 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatResponseMsg:
 		log.Println("Update().msg.chatResponseMsg.Content: " + msg.message.Content)
 		m.pending = false
-		m.messages = append(m.messages, msg.message)
+		assistantMsg := msg.message
+		if m.chatHistory != nil && m.activeSessionID != "" {
+			persisted, err := m.chatHistory.AddAssistantMessage(context.Background(), m.activeSessionID, assistantMsg)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			assistantMsg = persisted
+		}
+		m.messages = append(m.messages, assistantMsg)
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		log.Println("Update().msg.chatResponseMsg message added")
