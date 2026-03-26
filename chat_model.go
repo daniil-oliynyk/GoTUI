@@ -930,11 +930,15 @@ func (m ChatModel) renderSessionPlaceholder(width, height int) string {
 		height = 1
 	}
 
-	title := labelStyle.Width(width).Align(lipgloss.Center).Render(m.selectedSessionTitle())
-	subtitle := emptyStateSubtitleStyle.Width(width).Align(lipgloss.Center).Render("No messages yet")
-	body := lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle)
+	emptyHeight := height - 1
+	if emptyHeight < 1 {
+		emptyHeight = 1
+	}
 
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
+	empty := m.renderEmptyState(width, emptyHeight)
+	noMessages := hintStyle.Width(width).Align(lipgloss.Center).Render("No messages yet")
+
+	return lipgloss.JoinVertical(lipgloss.Left, empty, noMessages)
 }
 
 func (m ChatModel) renderModelPicker(width, height int) string {

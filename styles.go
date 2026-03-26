@@ -29,7 +29,7 @@ var paneStyle = lipgloss.NewStyle().
 
 var emptyStateTitleStyle = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(lipgloss.Color("69"))
+	Foreground(lipgloss.Color("76"))
 
 var emptyStateSubtitleStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("244"))
