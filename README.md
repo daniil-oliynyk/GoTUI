@@ -2,7 +2,7 @@
 
 GoTUI is a terminal-based chat client for OpenAI models, built with Go and Bubble Tea, with local SQLite persistence for chat sessions and message history.
 
-![GoTUI app screenshot](app_screenshot.PNG)
+![GoTUI app screenshot](assets/screenshots/app_screenshot.PNG)
 
 ## ✨ Key Features
 
@@ -54,7 +54,7 @@ Option B:
 ### 4) 🛠️ Build
 
 ```bash
-go build -o gotui .
+go build -o gotui ./cmd/app
 ```
 
 ### 5) ▶️ Run

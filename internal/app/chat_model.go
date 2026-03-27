@@ -1,11 +1,10 @@
-package main
+package app
 
 import (
 	"context"
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -14,32 +13,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type ChatMessage struct {
-	ID        string
-	Content   string
-	Role      MessageRole
-	CreatedAt time.Time
-}
 type chatResponseMsg struct {
 	message ChatMessage
 }
 type chatErrorMsg struct {
 	err error
-}
-
-type MessageRole string
-
-const (
-	MessageRoleUser      MessageRole = "user"
-	MessageRoleAssistant MessageRole = "assistant"
-)
-
-type ChatRequest struct {
-	Messages []ChatMessage
-}
-
-type ChatResponse struct {
-	Response string
 }
 
 type ChatModel struct {

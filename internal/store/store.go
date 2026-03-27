@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"context"
@@ -7,19 +7,21 @@ import (
 	"fmt"
 	"time"
 
+	"gotui/internal/domain"
+
 	_ "modernc.org/sqlite"
 )
 
-var ErrNotFound = errors.New("not found")
+type SessionItem = domain.SessionItem
+type ChatMessage = domain.ChatMessage
+type MessageRole = domain.MessageRole
 
-type SessionItem struct {
-	ID        string
-	Title     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-	Messages  []ChatMessage
-}
+const (
+	MessageRoleUser      = domain.MessageRoleUser
+	MessageRoleAssistant = domain.MessageRoleAssistant
+)
+
+var ErrNotFound = errors.New("not found")
 
 type SessionStore interface {
 	CreateSession(ctx context.Context, title string) (SessionItem, error)

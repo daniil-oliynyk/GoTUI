@@ -5,14 +5,13 @@ import (
 	"log"
 	"os"
 
+	"gotui/internal/app"
+	"gotui/internal/config"
+	"gotui/internal/store"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/caarlos0/env/v11"
 )
-
-type ChatClientConfig struct {
-	APIKey string `env:"API_KEY"`
-	Model  string
-}
 
 func main() {
 	fd, err := tea.LogToFile("debug.log", "debug")
@@ -22,32 +21,32 @@ func main() {
 	}
 	defer fd.Close()
 
-	config := ChatClientConfig{Model: "gpt-5-nano-2025-08-07"}
-	err = env.Parse(&config)
+	cfg := config.ChatClientConfig{Model: "gpt-5-nano-2025-08-07"}
+	err = env.Parse(&cfg)
 	if err != nil {
 		log.Println("Error parsing config:", err)
 		os.Exit(1)
 	}
 	log.Println("Config loaded")
 
-	sqliteDB, err := NewSQLiteDB("chat.db")
+	sqliteDB, err := store.NewSQLiteDB("chat.db")
 	if err != nil {
 		log.Println("Error opening sqlite db:", err)
 		os.Exit(1)
 	}
 	defer sqliteDB.Close()
 
-	migrator := NewSQLiteMigrator(sqliteDB.DB())
+	migrator := store.NewSQLiteMigrator(sqliteDB.DB())
 	if err := migrator.Migrate(context.Background()); err != nil {
 		log.Println("Error running sqlite migrations:", err)
 		os.Exit(1)
 	}
 
-	sessionStore := NewSQLiteSessionStore(sqliteDB)
-	messageStore := NewSQLiteMessageStore(sqliteDB)
-	history := NewChatHistoryImpl(sessionStore, messageStore)
+	sessionStore := store.NewSQLiteSessionStore(sqliteDB)
+	messageStore := store.NewSQLiteMessageStore(sqliteDB)
+	history := store.NewChatHistoryImpl(sessionStore, messageStore)
 
-	m := newAppModel(config, history)
+	m := app.NewModel(cfg, history)
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 

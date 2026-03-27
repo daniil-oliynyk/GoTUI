@@ -1,8 +1,11 @@
-package main
+package chat
 
 import (
 	"context"
 	"log"
+
+	"gotui/internal/config"
+	"gotui/internal/domain"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/conversations"
@@ -10,19 +13,19 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
-type ChatClient interface {
-	SendMessage(ChatRequest) (ChatResponse, error)
+type Client interface {
+	SendMessage(domain.ChatRequest) (domain.ChatResponse, error)
 	GetModels() ([]string, error)
 }
 
 type chatClientImpl struct {
 	ctx          context.Context
-	config       ChatClientConfig
+	config       config.ChatClientConfig
 	client       openai.Client
 	conversation *conversations.Conversation
 }
 
-func newChatClient(config ChatClientConfig) ChatClient {
+func NewClient(config config.ChatClientConfig) Client {
 	c := &chatClientImpl{
 		ctx:    context.Background(),
 		config: config,
@@ -43,7 +46,7 @@ func (c *chatClientImpl) createConversation() {
 	log.Println("Created conversation:", c.conversation.ID)
 }
 
-func (c *chatClientImpl) SendMessage(request ChatRequest) (ChatResponse, error) {
+func (c *chatClientImpl) SendMessage(request domain.ChatRequest) (domain.ChatResponse, error) {
 	log.Println("chatClientImpl.SendMessage().enter")
 
 	response, err := c.client.Responses.New(c.ctx, responses.ResponseNewParams{
@@ -59,10 +62,10 @@ func (c *chatClientImpl) SendMessage(request ChatRequest) (ChatResponse, error) 
 	})
 	if err != nil {
 		log.Println("chatClientImpl.SendMessage().error", err)
-		return ChatResponse{}, err
+		return domain.ChatResponse{}, err
 	}
 
-	return ChatResponse{Response: response.OutputText()}, nil
+	return domain.ChatResponse{Response: response.OutputText()}, nil
 }
 
 func (c *chatClientImpl) GetModels() ([]string, error) {

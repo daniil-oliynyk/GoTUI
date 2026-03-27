@@ -1,4 +1,4 @@
-package main
+package app
 
 import "charm.land/lipgloss/v2"
 

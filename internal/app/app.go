@@ -1,4 +1,4 @@
-package main
+package app
 
 import tea "charm.land/bubbletea/v2"
 
@@ -22,7 +22,7 @@ type AppModel struct {
 	chatHistory ChatHistory
 }
 
-func newAppModel(defaultConfig ChatClientConfig, chatHistory ChatHistory) AppModel {
+func NewModel(defaultConfig ChatClientConfig, chatHistory ChatHistory) AppModel {
 	return AppModel{
 		screen:      screenSetup,
 		setupModel:  newSetupModel(defaultConfig),
