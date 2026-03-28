@@ -1,7 +1,5 @@
 ![GoTUI logo](assets/screenshots/logo.png)
 
-![GoTUI app screenshot](assets/screenshots/app_screenshot.PNG)
-
 ChatTUI is a terminal-based chat client for OpenAI models, built with Go and Bubble Tea, with local SQLite persistence for chat sessions and message history.
 
 
@@ -13,6 +11,10 @@ ChatTUI is a terminal-based chat client for OpenAI models, built with Go and Bub
 - Create and delete chat sessions from the UI.
 - Persistent chat history using local SQLite (`chat.db`).
 - API key setup flow (load from environment or paste manually at startup).
+
+![GoTUI app screenshot](assets/screenshots/app_screenshot.PNG)
+
+
 
 ## 🚀 How to Use
 
