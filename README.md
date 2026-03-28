@@ -1,8 +1,9 @@
-# 💬 GoTUI
-
-GoTUI is a terminal-based chat client for OpenAI models, built with Go and Bubble Tea, with local SQLite persistence for chat sessions and message history.
+![GoTUI logo](assets/screenshots/logo.png)
 
 ![GoTUI app screenshot](assets/screenshots/app_screenshot.PNG)
+
+ChatTUI is a terminal-based chat client for OpenAI models, built with Go and Bubble Tea, with local SQLite persistence for chat sessions and message history.
+
 
 ## ✨ Key Features
 
@@ -18,8 +19,8 @@ GoTUI is a terminal-based chat client for OpenAI models, built with Go and Bubbl
 ### 1) 📥 Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/gotui.git
-cd gotui
+git clone https://github.com/<your-username>/ChatTUI.git
+cd ChatTUI
 ```
 
 ### 2) 📦 Install dependencies
@@ -54,13 +55,13 @@ Option B:
 ### 4) 🛠️ Build
 
 ```bash
-go build -o gotui ./cmd/app
+go build -o ChatTUI ./cmd/app
 ```
 
 ### 5) ▶️ Run
 
 ```bash
-./gotui
+./ChatTUI
 ```
 
 ## ⌨️ Controls
@@ -75,5 +76,5 @@ go build -o gotui ./cmd/app
 ## 📝 Notes
 
 - Currently only text generation is supported, no images or videos.
-- On startup, GoTUI initializes/migrates the local SQLite database automatically.
+- On startup, ChatTUI initializes/migrates the local SQLite database automatically.
 - Chat sessions and messages are stored in `chat.db` in the project directory.
